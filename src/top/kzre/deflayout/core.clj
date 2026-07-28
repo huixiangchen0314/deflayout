@@ -1,6 +1,5 @@
 (ns top.kzre.deflayout.core
-  (:import (clojure.lang Keyword)
-           (java.lang.reflect Array)))
+  (:import (clojure.lang Keyword)))
 
 ;; ---------- 数据记录 ----------
 
@@ -24,6 +23,7 @@
   [^Keyword name
    structs
    ^boolean ext?
+   ^boolean unchecked-math?
    ^LayoutDesc default-desc])
 
 ;; ---------- 解析逻辑 ----------
@@ -58,11 +58,13 @@
   (vec (for [[gname gdef] layout]
          (parse-struct gname gdef default-desc))))
 
-(defn parse-layout ^Layout [name layout opts]
-  (let [ext?         (boolean (:ext opts false))
-        default-desc (parse-desc opts)
+(defn parse-layout ^Layout [name layout
+                            {:keys [ext? unchecked-math?] :as opts
+                             :or   {ext?             false
+                                    unchecked-math? false}}]
+  (let [default-desc (parse-desc opts)
         structs      (parse-structs layout default-desc)]
-    (Layout. name structs ext? default-desc)))
+    (Layout. name structs (boolean ext?) (boolean unchecked-math?) default-desc)))
 
 ;; ---------- 类型提示工具（仅用于 deftype 字段生成） ----------
 (defn- type-tag-hint [type-kw]
@@ -94,7 +96,7 @@
   (map vector fields (reductions + 0 (map :length fields))))
 
 ;; ---------- 访问器宏：单个字段组件 ----------
-(defn emit-array-accessors [lo]
+(defn emit-array-accessors [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride  (:stride s)
@@ -110,19 +112,25 @@
                                              (case type-kw
                                                :float
                                                `(defmacro ~accessor-name [ ~'arr ~'idx]
-                                                  `(aget ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
+                                                  (if ~unchecked?
+                                                    `(aget ^"[F" ~~'arr (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset))
+                                                   `(aget ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset))))
                                                :int
                                                `(defmacro ~accessor-name [~'arr ~'idx]
-                                                  `(aget ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
+                                                  (if ~unchecked?
+                                                    `(aget ^"[I" ~~'arr (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset))
+                                                    `(aget ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset))))
                                                :byte
                                                `(defmacro ~accessor-name [ ~'arr ~'idx]
-                                                  `(aget ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset))))))
+                                                  (if ~unchecked?
+                                                    `(aget ^"[B" ~~'arr (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset))
+                                                    `(aget ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))))))
                                          comp-names)))
                         offsets)))
             (:structs lo))))
 
 ;; ---------- 设置器宏：单个字段组件 ----------
-(defn emit-array-setters [lo]
+(defn emit-array-setters [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride  (:stride s)
@@ -138,20 +146,26 @@
                                              (case type-kw
                                                :float
                                                `(defmacro ~setter-name [ ~'arr ~'idx ~'val]
-                                                  `(aset ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
+                                                  (if ~unchecked?
+                                                    `(aset ^"[F" ~~'arr (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset) ~~'val)
+                                                    `(aset ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val)))
                                                :int
                                                `(defmacro ~setter-name [~'arr ~'idx ~'val]
-                                                  `(aset ^"["  ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
+                                                  (if ~unchecked?
+                                                    `(aset ^"[I" ~~'arr (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset) ~~'val)
+                                                    `(aset ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val)))
                                                :byte
                                                `(defmacro ~setter-name [ ~'arr ~'idx ~'val]
-                                                  `(aset ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val)))))
+                                                  (if ~unchecked?
+                                                    `(aset ^"[B" ~~'arr (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset) ~~'val)
+                                                    `(aset ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))))))
                             comp-names)))
                 offsets)))
     (:structs lo))))
 
 ;; ---------- 整字段读取宏 ----------
 
-(defn emit-array-whole-accessors [lo]
+(defn emit-array-whole-accessors [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride  (:stride s)
@@ -164,23 +178,32 @@
                            :float
                            `(defmacro ~field-sym [~'out ~'arr ~'idx]
                               `(do ~@(for [ci# (range ~len)]
-                                       `(aset ^"[F" ~~'out (+ ~~'idx ~ci#)
-                                              (aget ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
+                                       (if ~unchecked?
+                                         `(aset ^"[F" ~~'out (unchecked-add ~~'idx ~ci#)
+                                                (aget ^"[F" ~~'arr (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)))
+                                        `(aset ^"[F" ~~'out (+ ~~'idx ~ci#)
+                                               (aget ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
                            :int
                            `(defmacro ~field-sym [~'out ~'arr ~'idx]
                               `(do ~@(for [ci# (range ~len)]
-                                       `(aset ^"[I" ~~'out (+ ~~'idx ~ci#)
-                                              (aget ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
+                                       (if ~unchecked?
+                                         `(aset ^"[I" ~~'out (unchecked-add ~~'idx ~ci#)
+                                                (aget ^"[I" ~~'arr (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)))
+                                         `(aset ^"[I" ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
                            :byte
                            `(defmacro ~field-sym [~'out ~'arr ~'idx]
                               `(do ~@(for [ci# (range ~len)]
-                                       `(aset ^"[B" ~~'out (+ ~~'idx ~ci#)
-                                              (aget ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))))
+                                       (if ~unchecked?
+                                         `(aset ^"[B" ~~'out (unchecked-add ~~'idx ~ci#)
+                                                (aget ^"[B" ~~'arr (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)))
+                                         `(aset ^"[B" ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))))))
                      offsets)))
             (:structs lo))))
 
 ;; ---------- 整字段写入宏 ----------
-(defn emit-array-whole-setters [lo]
+(defn emit-array-whole-setters [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride  (:stride s)
@@ -194,24 +217,30 @@
                            :float
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
                               `(do ~@(map-indexed (fn [ci# val#]
-                                                    `(aset ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                    (if ~unchecked?
+                                                      `(aset ^"[F" ~~'arr (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#) ~val#)
+                                                      `(aset ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
                                                   (list ~@val-syms))))
                            :int
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
                               `(do ~@(map-indexed (fn [ci# val#]
-                                                    `(aset ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                    (if ~unchecked?
+                                                      `(aset ^"[I" ~~'arr (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#) ~val#)
+                                                      `(aset ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
                                                   (list ~@val-syms))))
                            :byte
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
                               `(do ~@(map-indexed (fn [ci# val#]
-                                                    `(aset ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                    (if ~unchecked?
+                                                      `(aset ^"[B" ~~'arr (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#) ~val#)
+                                                      `(aset ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
                                                   (list ~@val-syms)))))))
                 offsets)))
     (:structs lo))))
 
 
 ;; ---------- obj- 访问器宏：单个字段组件 ----------
-(defn emit-obj-accessors [lo]
+(defn emit-obj-accessors [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride    (:stride s)
@@ -224,29 +253,39 @@
                                                (mapv #(keyword (str %)) (range (:length f))))]
                             (map-indexed (fn [ci comp-name]
                                            (let [accessor-name (symbol (str "obj-" (name sem) "-" (name comp-name)))
-                                                 final-offset  (+ offset ci)]
+                                                 final-offset  (+ offset ci)
+                                                 ]
                                              (case type-kw
                                                :float
                                                `(defmacro ~accessor-name [~'obj ~'idx]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aget ^"[F" (. ~~'obj ~~'sym)
-                                                           (+ (* ~~'idx ~~stride) ~~final-offset))))
+                                                    (if ~unchecked?
+                                                      `(aget ^"[F" (. ~~'obj ~~'sym)
+                                                             (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset))
+                                                      `(aget ^"[F" (. ~~'obj ~~'sym)
+                                                             (+ (* ~~'idx ~~stride) ~~final-offset)))))
                                                :int
                                                `(defmacro ~accessor-name [~'obj ~'idx]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aget ^"[" (. ~~'obj ~~'sym)
-                                                           (+ (* ~~'idx ~~stride) ~~final-offset))))
+                                                    (if ~unchecked?
+                                                      `(aget ^"[" (. ~~'obj ~~'sym)
+                                                             (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset))
+                                                      `(aget ^"[" (. ~~'obj ~~'sym)
+                                                             (+ (* ~~'idx ~~stride) ~~final-offset)))))
                                                :byte
                                                `(defmacro ~accessor-name [~'obj ~'idx]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aget ^"[B" (. ~~'obj ~~'sym)
-                                                           (+ (* ~~'idx ~~stride) ~~final-offset)))))))
+                                                    (if ~unchecked?
+                                                      `(aget ^"[B" (. ~~'obj ~~'sym)
+                                                             (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset))
+                                                     `(aget ^"[B" (. ~~'obj ~~'sym)
+                                                            (+ (* ~~'idx ~~stride) ~~final-offset))))))))
                                          comp-names)))
                         offsets)))
             (:structs lo))))
 
 ;; ---------- obj- 设置器宏：单个字段组件 ----------
-(defn emit-obj-setters [lo]
+(defn emit-obj-setters [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride    (:stride s)
@@ -264,27 +303,45 @@
                                                :float
                                                `(defmacro ~setter-name [~'obj ~'idx ~'val]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aset ^"[F" (. ~~'obj ~~'sym)
-                                                           (+ (* ~~'idx ~~stride) ~~final-offset)
-                                                           ~~'val)))
+                                                    (if ~unchecked?
+                                                      `(aset ^"[F" (. ~~'obj ~~'sym)
+                                                             (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset)
+                                                             ~~'val)
+                                                      `(aset ^"[F" (. ~~'obj ~~'sym)
+                                                             (+ (* ~~'idx ~~stride) ~~final-offset)
+                                                             ~~'val))))
                                                :int
                                                `(defmacro ~setter-name [~'obj ~'idx ~'val]
-                                                  (let [~'sym ~field-sym-quoted]
-                                                    `(aset ^"[I" (. ~~'obj ~~'sym)
-                                                           (+ (* ~~'idx ~~stride) ~~final-offset)
-                                                           ~~'val)))
+                                                  (if ~unchecked?
+                                                    (let [~'sym ~field-sym-quoted]
+                                                      `(aset ^"[I" (. ~~'obj ~~'sym)
+                                                             (unchecked-add (unchecked-multiply ~~'idx ~~stride
+                                                                  ) ~~final-offset)
+                                                             ~~'val))
+                                                   (let [~'sym ~field-sym-quoted]
+                                                     (if ~unchecked?
+                                                       `(aset ^"[I" (. ~~'obj ~~'sym)
+                                                              (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset)
+                                                              ~~'val)
+                                                       `(aset ^"[I" (. ~~'obj ~~'sym)
+                                                              (+ (* ~~'idx ~~stride) ~~final-offset)
+                                                              ~~'val)))))
                                                :byte
                                                `(defmacro ~setter-name [~'obj ~'idx ~'val]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aset ^"[B" (. ~~'obj ~~'sym)
-                                                           (+ (* ~~'idx ~~stride) ~~final-offset)
-                                                           ~~'val))))))
+                                                    (if ~unchecked?
+                                                      `(aset ^"[B" (. ~~'obj ~~'sym)
+                                                             (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset)
+                                                             ~~'val)
+                                                      `(aset ^"[B" (. ~~'obj ~~'sym)
+                                                             (+ (* ~~'idx ~~stride) ~~final-offset)
+                                                             ~~'val)))))))
                                          comp-names)))
                         offsets)))
             (:structs lo))))
 
 ;; ---------- obj- 整字段读取宏 ----------
-(defn emit-obj-whole-accessors [lo]
+(defn emit-obj-whole-accessors [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride    (:stride s)
@@ -299,28 +356,40 @@
                            `(defmacro ~field-sym* [~'out ~'obj ~'idx]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(for [ci# (range ~len)]
-                                         `(aset ^"[F" ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^"[F" (. ~~'obj ~~'sym)
-                                                      (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
+                                        (if ~unchecked?
+                                          `(aset ^"[F" ~~'out (unchecked-add ~~'idx ~ci#)
+                                                 (aget ^"[F" (. ~~'obj ~~'sym)
+                                                       (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)))
+                                          `(aset ^"[F" ~~'out (+ ~~'idx ~ci#)
+                                                 (aget ^"[F" (. ~~'obj ~~'sym)
+                                                       (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))))
                            :int
                            `(defmacro ~field-sym* [~'out ~'obj ~'idx]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(for [ci# (range ~len)]
-                                         `(aset ^"[I" ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^"[I" (. ~~'obj ~~'sym)
-                                                      (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
+                                         (if ~unchecked?
+                                           `(aset ^"[I" ~~'out (unchecked-add ~~'idx ~ci#)
+                                                  (aget ^"[I" (. ~~'obj ~~'sym)
+                                                        (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)))
+                                           `(aset ^"[I" ~~'out (+ ~~'idx ~ci#)
+                                                  (aget ^"[I" (. ~~'obj ~~'sym)
+                                                        (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))))
                            :byte
                            `(defmacro ~field-sym* [~'out ~'obj ~'idx]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(for [ci# (range ~len)]
-                                         `(aset ^"[B" ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^"[B" (. ~~'obj ~~'sym)
-                                                      (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))))))
+                                         (if ~unchecked?
+                                           `(aset ^"[B" ~~'out (unchecked-add ~~'idx ~ci#)
+                                                  (aget ^"[B" (. ~~'obj ~~'sym)
+                                                        (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)))
+                                           `(aset ^"[B" ~~'out (+ ~~'idx ~ci#)
+                                                  (aget ^"[B" (. ~~'obj ~~'sym)
+                                                        (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))))))
                      offsets)))
             (:structs lo))))
 
 ;; ---------- obj- 整字段写入宏 ----------
-(defn emit-obj-whole-setters [lo ]
+(defn emit-obj-whole-setters [lo unchecked?]
   (vec
     (mapcat (fn [s]
               (let [stride    (:stride s)
@@ -336,25 +405,37 @@
                            `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(map-indexed (fn [ci# val#]
-                                                      `(aset ^"[F" (. ~~'obj ~~'sym)
-                                                             (+ (* ~~'idx ~~stride) ~~offset ~ci#)
-                                                             ~val#))
+                                                      (if ~unchecked?
+                                                        `(aset ^"[F" (. ~~'obj ~~'sym)
+                                                               (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)
+                                                               ~val#)
+                                                        `(aset ^"[F" (. ~~'obj ~~'sym)
+                                                               (+ (* ~~'idx ~~stride) ~~offset ~ci#)
+                                                               ~val#)))
                                                     (list ~@val-syms)))))
                            :int
                            `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
                               (let  [~'sym ~field-sym-quoted]
                                 `(do ~@(map-indexed (fn [ci# val#]
-                                                      `(aset ^"[I" (. ~~'obj ~~'sym)
-                                                             (+ (* ~~'idx ~~stride) ~~offset ~ci#)
-                                                             ~val#))
+                                                      (if ~unchecked?
+                                                        `(aset ^"[I" (. ~~'obj ~~'sym)
+                                                               (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)
+                                                               ~val#)
+                                                        `(aset ^"[I" (. ~~'obj ~~'sym)
+                                                               (+ (* ~~'idx ~~stride) ~~offset ~ci#)
+                                                               ~val#)))
                                                     (list ~@val-syms)))))
                            :byte
                            `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(map-indexed (fn [ci# val#]
-                                                      `(aset ^"[B" (. ~~'obj ~~'sym)
-                                                             (+ (* ~~'idx ~~stride) ~~offset ~ci#)
-                                                             ~val#))
+                                                      (if ~unchecked?
+                                                        `(aset ^"[B" (. ~~'obj ~~'sym)
+                                                               (unchecked-add (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#)
+                                                               ~val#)
+                                                        `(aset ^"[B" (. ~~'obj ~~'sym)
+                                                               (+ (* ~~'idx ~~stride) ~~offset ~ci#)
+                                                               ~val#)))
                                                     (list ~@val-syms))))))))
                      offsets)))
             (:structs lo))))
@@ -364,17 +445,18 @@
 (defmacro deflayout
   [name layout & opts]
   (let [lo (parse-layout name layout (apply hash-map opts))
+        unchecked?  (:unchecked-math? lo)
         _  (println (pr-str lo))]
     `(do
        (deftype ~name ~(emit-type-fields lo))
        ;; 原始数组版本
-       ~@(emit-array-accessors lo)
-       ~@(emit-array-setters lo)
-       ~@(emit-array-whole-accessors lo)
-       ~@(emit-array-whole-setters lo)
+       ~@(emit-array-accessors lo unchecked?)
+       ~@(emit-array-setters lo unchecked?)
+       ~@(emit-array-whole-accessors lo unchecked?)
+       ~@(emit-array-whole-setters lo unchecked?)
        ;; obj 版本
-       ~@(emit-obj-accessors lo)
-       ~@(emit-obj-setters lo)
-       ~@(emit-obj-whole-accessors lo)
-       ~@(emit-obj-whole-setters lo)
+       ~@(emit-obj-accessors lo unchecked?)
+       ~@(emit-obj-setters lo unchecked?)
+       ~@(emit-obj-whole-accessors lo unchecked?)
+       ~@(emit-obj-whole-setters lo unchecked?)
        )))
