@@ -110,13 +110,13 @@
                                              (case type-kw
                                                :float
                                                `(defmacro ~accessor-name [ ~'arr ~'idx]
-                                                  `(aget ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
+                                                  `(aget ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
                                                :int
                                                `(defmacro ~accessor-name [~'arr ~'idx]
-                                                  `(aget ^ints ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
+                                                  `(aget ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
                                                :byte
                                                `(defmacro ~accessor-name [ ~'arr ~'idx]
-                                                  `(aget ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset))))))
+                                                  `(aget ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset))))))
                                          comp-names)))
                         offsets)))
             (:structs lo))))
@@ -138,13 +138,13 @@
                                              (case type-kw
                                                :float
                                                `(defmacro ~setter-name [ ~'arr ~'idx ~'val]
-                                                  `(aset  ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
+                                                  `(aset ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
                                                :int
                                                `(defmacro ~setter-name [~'arr ~'idx ~'val]
-                                                  `(aset ^ints  ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
+                                                  `(aset ^"["  ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
                                                :byte
                                                `(defmacro ~setter-name [ ~'arr ~'idx ~'val]
-                                                  `(aset ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val)))))
+                                                  `(aset ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val)))))
                             comp-names)))
                 offsets)))
     (:structs lo))))
@@ -164,18 +164,18 @@
                            :float
                            `(defmacro ~field-sym [~'out ~'arr ~'idx]
                               `(do ~@(for [ci# (range ~len)]
-                                       `(aset ^floats ~~'out (+ ~~'idx ~ci#)
-                                              (aget ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
+                                       `(aset ^"[F" ~~'out (+ ~~'idx ~ci#)
+                                              (aget ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
                            :int
                            `(defmacro ~field-sym [~'out ~'arr ~'idx]
                               `(do ~@(for [ci# (range ~len)]
-                                       `(aset ^ints ~~'out (+ ~~'idx ~ci#)
-                                              (aget ^ints ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
+                                       `(aset ^"[I" ~~'out (+ ~~'idx ~ci#)
+                                              (aget ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
                            :byte
                            `(defmacro ~field-sym [~'out ~'arr ~'idx]
                               `(do ~@(for [ci# (range ~len)]
-                                       `(aset ^bytes ~~'out (+ ~~'idx ~ci#)
-                                              (aget ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))))
+                                       `(aset ^"[B" ~~'out (+ ~~'idx ~ci#)
+                                              (aget ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))))
                      offsets)))
             (:structs lo))))
 
@@ -194,17 +194,17 @@
                            :float
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
                               `(do ~@(map-indexed (fn [ci# val#]
-                                                    `(aset ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                    `(aset ^"[F" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
                                                   (list ~@val-syms))))
                            :int
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
                               `(do ~@(map-indexed (fn [ci# val#]
-                                                    `(aset ^ints ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                    `(aset ^"[I" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
                                                   (list ~@val-syms))))
                            :byte
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
                               `(do ~@(map-indexed (fn [ci# val#]
-                                                    `(aset ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                    `(aset ^"[B" ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
                                                   (list ~@val-syms)))))))
                 offsets)))
     (:structs lo))))
@@ -229,17 +229,17 @@
                                                :float
                                                `(defmacro ~accessor-name [~'obj ~'idx]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aget ^floats (. ~~'obj ~~'sym)
+                                                    `(aget ^"[F" (. ~~'obj ~~'sym)
                                                            (+ (* ~~'idx ~~stride) ~~final-offset))))
                                                :int
                                                `(defmacro ~accessor-name [~'obj ~'idx]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aget ^ints (. ~~'obj ~~'sym)
+                                                    `(aget ^"[" (. ~~'obj ~~'sym)
                                                            (+ (* ~~'idx ~~stride) ~~final-offset))))
                                                :byte
                                                `(defmacro ~accessor-name [~'obj ~'idx]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aget ^bytes (. ~~'obj ~~'sym)
+                                                    `(aget ^"[B" (. ~~'obj ~~'sym)
                                                            (+ (* ~~'idx ~~stride) ~~final-offset)))))))
                                          comp-names)))
                         offsets)))
@@ -264,19 +264,19 @@
                                                :float
                                                `(defmacro ~setter-name [~'obj ~'idx ~'val]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aset ^floats (. ~~'obj ~~'sym)
+                                                    `(aset ^"[F" (. ~~'obj ~~'sym)
                                                            (+ (* ~~'idx ~~stride) ~~final-offset)
                                                            ~~'val)))
                                                :int
                                                `(defmacro ~setter-name [~'obj ~'idx ~'val]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aset ^ints (. ~~'obj ~~'sym)
+                                                    `(aset ^"[I" (. ~~'obj ~~'sym)
                                                            (+ (* ~~'idx ~~stride) ~~final-offset)
                                                            ~~'val)))
                                                :byte
                                                `(defmacro ~setter-name [~'obj ~'idx ~'val]
                                                   (let [~'sym ~field-sym-quoted]
-                                                    `(aset ^bytes (. ~~'obj ~~'sym)
+                                                    `(aset ^"[B" (. ~~'obj ~~'sym)
                                                            (+ (* ~~'idx ~~stride) ~~final-offset)
                                                            ~~'val))))))
                                          comp-names)))
@@ -299,28 +299,28 @@
                            `(defmacro ~field-sym* [~'out ~'obj ~'idx]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(for [ci# (range ~len)]
-                                         `(aset ^floats ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^floats (. ~~'obj ~~'sym)
+                                         `(aset ^"[F" ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^"[F" (. ~~'obj ~~'sym)
                                                       (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
                            :int
                            `(defmacro ~field-sym* [~'out ~'obj ~'idx]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(for [ci# (range ~len)]
-                                         `(aset ^ints ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^ints (. ~~'obj ~~'sym)
+                                         `(aset ^"[I" ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^"[I" (. ~~'obj ~~'sym)
                                                       (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
                            :byte
                            `(defmacro ~field-sym* [~'out ~'obj ~'idx]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(for [ci# (range ~len)]
-                                         `(aset ^bytes ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^bytes (. ~~'obj ~~'sym)
+                                         `(aset ^"[B" ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^"[B" (. ~~'obj ~~'sym)
                                                       (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))))))
                      offsets)))
             (:structs lo))))
 
 ;; ---------- obj- 整字段写入宏 ----------
-(defn emit-obj-whole-setters [lo]
+(defn emit-obj-whole-setters [lo ]
   (vec
     (mapcat (fn [s]
               (let [stride    (:stride s)
@@ -336,7 +336,7 @@
                            `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(map-indexed (fn [ci# val#]
-                                                      `(aset ^floats (. ~~'obj ~~'sym)
+                                                      `(aset ^"[F" (. ~~'obj ~~'sym)
                                                              (+ (* ~~'idx ~~stride) ~~offset ~ci#)
                                                              ~val#))
                                                     (list ~@val-syms)))))
@@ -344,7 +344,7 @@
                            `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
                               (let  [~'sym ~field-sym-quoted]
                                 `(do ~@(map-indexed (fn [ci# val#]
-                                                      `(aset ^ints (. ~~'obj ~~'sym)
+                                                      `(aset ^"[I" (. ~~'obj ~~'sym)
                                                              (+ (* ~~'idx ~~stride) ~~offset ~ci#)
                                                              ~val#))
                                                     (list ~@val-syms)))))
@@ -352,7 +352,7 @@
                            `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
                               (let [~'sym ~field-sym-quoted]
                                 `(do ~@(map-indexed (fn [ci# val#]
-                                                      `(aset ^bytes (. ~~'obj ~~'sym)
+                                                      `(aset ^"[B" (. ~~'obj ~~'sym)
                                                              (+ (* ~~'idx ~~stride) ~~offset ~ci#)
                                                              ~val#))
                                                     (list ~@val-syms))))))))
