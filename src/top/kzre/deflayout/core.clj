@@ -1,5 +1,6 @@
 (ns top.kzre.deflayout.core
-  (:import (clojure.lang Keyword)))
+  (:import (clojure.lang Keyword)
+           (java.lang.reflect Array)))
 
 ;; ---------- 数据记录 ----------
 
@@ -57,27 +58,28 @@
   (vec (for [[gname gdef] layout]
          (parse-struct gname gdef default-desc))))
 
-(defn- parse-layout ^Layout [name layout opts]
+(defn parse-layout ^Layout [name layout opts]
   (let [ext?         (boolean (:ext opts false))
         default-desc (parse-desc opts)
         structs      (parse-structs layout default-desc)]
     (Layout. name structs ext? default-desc)))
 
-;; ---------- 生成 deftype 字段 ----------
+;; ---------- 类型提示工具（仅用于 deftype 字段生成） ----------
+(defn- type-tag-hint [type-kw]
+  (case type-kw
+    :float "[F"
+    :int   "[I"
+    :byte  "[B"
+    (throw (ex-info (str "Unsupported field type: " type-kw)
+                    {:type type-kw}))))
 
-(defn- emit-type-fields [lo]
+;; ---------- 生成 deftype 字段 ----------
+(defn emit-type-fields [lo]
   (let [structs (:structs lo)
         fields (mapcat (fn [s]
                          (let [sym      (symbol (name (:name s)))
                                mutable? (:unsynchronized-mutable (:desc s))
-                               type-kw  (:type s)
-                               tag      (case type-kw
-                                          ;; 转符号
-                                          :float 'floats       ;; 使用普通引用
-                                          :int   'ints
-                                          :byte  'bytes
-                                          (throw (ex-info (str "Unsupported field type: " type-kw)
-                                                          {:structure s})))
+                               tag      (type-tag-hint (:type s))
                                meta-map (if mutable?
                                           {:tag tag :unsynchronized-mutable true}
                                           {:tag tag})]
@@ -87,14 +89,16 @@
       (conj (vec fields) 'ext)
       (vec fields))))
 
-;; ---------- 数组版宏（默认，直接操作数组） ----------
-(defn- field-offsets [fields]
+;; ---------- 偏移计算 ----------
+(defn field-offsets [fields]
   (map vector fields (reductions + 0 (map :length fields))))
 
-(defn- emit-array-accessors [lo]
+;; ---------- 访问器宏：单个字段组件 ----------
+(defn emit-array-accessors [lo]
   (vec
     (mapcat (fn [s]
-              (let [stride (:stride s)
+              (let [stride  (:stride s)
+                    type-kw (:type s)
                     offsets (field-offsets (:fields s))]
                 (mapcat (fn [[f offset]]
                           (let [sem        (:name f)
@@ -102,111 +106,275 @@
                                                (mapv #(keyword (str %)) (range (:length f))))]
                             (map-indexed (fn [ci comp-name]
                                            (let [accessor-name (symbol (str (name sem) "-" (name comp-name)))
-                                                 idx-expr      `(+ (* ~'idx ~stride) ~(+ offset ci))]
-                                             `(defmacro ~accessor-name [~'arr ~'idx]
-                                                (aget ~'arr ~idx-expr))))
+                                                 final-offset  (+ offset ci)]
+                                             (case type-kw
+                                               :float
+                                               `(defmacro ~accessor-name [ ~'arr ~'idx]
+                                                  `(aget ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
+                                               :int
+                                               `(defmacro ~accessor-name [~'arr ~'idx]
+                                                  `(aget ^ints ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset)))
+                                               :byte
+                                               `(defmacro ~accessor-name [ ~'arr ~'idx]
+                                                  `(aget ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset))))))
                                          comp-names)))
                         offsets)))
             (:structs lo))))
 
-(defn- emit-array-setters [lo]
+;; ---------- 设置器宏：单个字段组件 ----------
+(defn emit-array-setters [lo]
   (vec
     (mapcat (fn [s]
-              (let [stride (:stride s)
+              (let [stride  (:stride s)
+                    type-kw (:type s)
                     offsets (field-offsets (:fields s))]
                 (mapcat (fn [[f offset]]
                           (let [sem        (:name f)
                                 comp-names (or (:comp-names f)
                                                (mapv #(keyword (str %)) (range (:length f))))]
                             (map-indexed (fn [ci comp-name]
-                                           (let [setter-name (symbol (str "set-" (name sem) "-" (name comp-name) "!"))
-                                                 idx-expr    `(+ (* ~'idx ~stride) ~(+ offset ci))]
-                                             `(defmacro ~setter-name [~'arr ~'idx ~'val]
-                                                (aset ~'arr ~idx-expr ~'val))))
+                                           (let [setter-name  (symbol (str "set-" (name sem) "-" (name comp-name) "!"))
+                                                 final-offset (+ offset ci)]
+                                             (case type-kw
+                                               :float
+                                               `(defmacro ~setter-name [ ~'arr ~'idx ~'val]
+                                                  `(aset  ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
+                                               :int
+                                               `(defmacro ~setter-name [~'arr ~'idx ~'val]
+                                                  `(aset ^ints  ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val))
+                                               :byte
+                                               `(defmacro ~setter-name [ ~'arr ~'idx ~'val]
+                                                  `(aset ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~final-offset) ~~'val)))))
+                            comp-names)))
+                offsets)))
+    (:structs lo))))
+
+;; ---------- 整字段读取宏 ----------
+
+(defn emit-array-whole-accessors [lo]
+  (vec
+    (mapcat (fn [s]
+              (let [stride  (:stride s)
+                    type-kw (:type s)
+                    offsets (field-offsets (:fields s))]
+                (map (fn [[f offset]]
+                       (let [field-sym (symbol (name (:name f)))
+                             len       (:length f)]
+                         (case type-kw
+                           :float
+                           `(defmacro ~field-sym [~'out ~'arr ~'idx]
+                              `(do ~@(for [ci# (range ~len)]
+                                       `(aset ^floats ~~'out (+ ~~'idx ~ci#)
+                                              (aget ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
+                           :int
+                           `(defmacro ~field-sym [~'out ~'arr ~'idx]
+                              `(do ~@(for [ci# (range ~len)]
+                                       `(aset ^ints ~~'out (+ ~~'idx ~ci#)
+                                              (aget ^ints ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))
+                           :byte
+                           `(defmacro ~field-sym [~'out ~'arr ~'idx]
+                              `(do ~@(for [ci# (range ~len)]
+                                       `(aset ^bytes ~~'out (+ ~~'idx ~ci#)
+                                              (aget ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))))
+                     offsets)))
+            (:structs lo))))
+
+;; ---------- 整字段写入宏 ----------
+(defn emit-array-whole-setters [lo]
+  (vec
+    (mapcat (fn [s]
+              (let [stride  (:stride s)
+                    type-kw (:type s)
+                    offsets (field-offsets (:fields s))]
+                (map (fn [[f offset]]
+                       (let [field-sym (symbol (str "set-" (name (:name f)) "!"))
+                             len       (:length f)
+                             val-syms  (repeatedly len gensym)]
+                         (case type-kw
+                           :float
+                           `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
+                              `(do ~@(map-indexed (fn [ci# val#]
+                                                    `(aset ^floats ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                  (list ~@val-syms))))
+                           :int
+                           `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
+                              `(do ~@(map-indexed (fn [ci# val#]
+                                                    `(aset ^ints ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                  (list ~@val-syms))))
+                           :byte
+                           `(defmacro ~field-sym [~'arr ~'idx ~@val-syms]
+                              `(do ~@(map-indexed (fn [ci# val#]
+                                                    `(aset ^bytes ~~'arr (+ (* ~~'idx ~~stride) ~~offset ~ci#) ~val#))
+                                                  (list ~@val-syms)))))))
+                offsets)))
+    (:structs lo))))
+
+
+;; ---------- obj- 访问器宏：单个字段组件 ----------
+(defn emit-obj-accessors [lo]
+  (vec
+    (mapcat (fn [s]
+              (let [stride    (:stride s)
+                    type-kw   (:type s)
+                    field-sym-quoted `(symbol (name (:name ~s)))  ;; deftype 字段名
+                    offsets   (field-offsets (:fields s))]
+                (mapcat (fn [[f offset]]
+                          (let [sem        (:name f)
+                                comp-names (or (:comp-names f)
+                                               (mapv #(keyword (str %)) (range (:length f))))]
+                            (map-indexed (fn [ci comp-name]
+                                           (let [accessor-name (symbol (str "obj-" (name sem) "-" (name comp-name)))
+                                                 final-offset  (+ offset ci)]
+                                             (case type-kw
+                                               :float
+                                               `(defmacro ~accessor-name [~'obj ~'idx]
+                                                  (let [~'sym ~field-sym-quoted]
+                                                    `(aget ^floats (. ~~'obj ~~'sym)
+                                                           (+ (* ~~'idx ~~stride) ~~final-offset))))
+                                               :int
+                                               `(defmacro ~accessor-name [~'obj ~'idx]
+                                                  (let [~'sym ~field-sym-quoted]
+                                                    `(aget ^ints (. ~~'obj ~~'sym)
+                                                           (+ (* ~~'idx ~~stride) ~~final-offset))))
+                                               :byte
+                                               `(defmacro ~accessor-name [~'obj ~'idx]
+                                                  (let [~'sym ~field-sym-quoted]
+                                                    `(aget ^bytes (. ~~'obj ~~'sym)
+                                                           (+ (* ~~'idx ~~stride) ~~final-offset)))))))
                                          comp-names)))
                         offsets)))
             (:structs lo))))
 
-(defn- emit-array-whole-accessors [lo]
+;; ---------- obj- 设置器宏：单个字段组件 ----------
+(defn emit-obj-setters [lo]
   (vec
     (mapcat (fn [s]
-              (let [stride (:stride s)
-                    offsets (field-offsets (:fields s))]
+              (let [stride    (:stride s)
+                    type-kw   (:type s)
+                    field-sym-quoted `(symbol (name (:name ~s)))
+                    offsets   (field-offsets (:fields s))]
+                (mapcat (fn [[f offset]]
+                          (let [sem        (:name f)
+                                comp-names (or (:comp-names f)
+                                               (mapv #(keyword (str %)) (range (:length f))))]
+                            (map-indexed (fn [ci comp-name]
+                                           (let [setter-name  (symbol (str "obj-set-" (name sem) "-" (name comp-name) "!"))
+                                                 final-offset (+ offset ci)]
+                                             (case type-kw
+                                               :float
+                                               `(defmacro ~setter-name [~'obj ~'idx ~'val]
+                                                  (let [~'sym ~field-sym-quoted]
+                                                    `(aset ^floats (. ~~'obj ~~'sym)
+                                                           (+ (* ~~'idx ~~stride) ~~final-offset)
+                                                           ~~'val)))
+                                               :int
+                                               `(defmacro ~setter-name [~'obj ~'idx ~'val]
+                                                  (let [~'sym ~field-sym-quoted]
+                                                    `(aset ^ints (. ~~'obj ~~'sym)
+                                                           (+ (* ~~'idx ~~stride) ~~final-offset)
+                                                           ~~'val)))
+                                               :byte
+                                               `(defmacro ~setter-name [~'obj ~'idx ~'val]
+                                                  (let [~'sym ~field-sym-quoted]
+                                                    `(aset ^bytes (. ~~'obj ~~'sym)
+                                                           (+ (* ~~'idx ~~stride) ~~final-offset)
+                                                           ~~'val))))))
+                                         comp-names)))
+                        offsets)))
+            (:structs lo))))
+
+;; ---------- obj- 整字段读取宏 ----------
+(defn emit-obj-whole-accessors [lo]
+  (vec
+    (mapcat (fn [s]
+              (let [stride    (:stride s)
+                    type-kw   (:type s)
+                    field-sym-quoted `(symbol (name (:name ~s)))
+                    offsets   (field-offsets (:fields s))]
                 (map (fn [[f offset]]
-                       (let [field-sym (symbol (name (:name f)))
-                             len        (:length f)
-                             asets      (for [ci (range len)]
-                                          `(aset ~'out (+ ~'idx ~ci)
-                                                 (aget ~'arr
-                                                       (+ (* ~'idx ~stride) ~(+ offset ci)))))]
-                         `(defmacro ~field-sym [~'out ~'arr ~'idx]
-                            ~@asets)))
+                       (let [field-sym* (symbol (name (:name f)))   ;; 这个宏的名字
+                             len        (:length f)]
+                         (case type-kw
+                           :float
+                           `(defmacro ~field-sym* [~'out ~'obj ~'idx]
+                              (let [~'sym ~field-sym-quoted]
+                                `(do ~@(for [ci# (range ~len)]
+                                         `(aset ^floats ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^floats (. ~~'obj ~~'sym)
+                                                      (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
+                           :int
+                           `(defmacro ~field-sym* [~'out ~'obj ~'idx]
+                              (let [~'sym ~field-sym-quoted]
+                                `(do ~@(for [ci# (range ~len)]
+                                         `(aset ^ints ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^ints (. ~~'obj ~~'sym)
+                                                      (+ (* ~~'idx ~~stride) ~~offset ~ci#)))))))
+                           :byte
+                           `(defmacro ~field-sym* [~'out ~'obj ~'idx]
+                              (let [~'sym ~field-sym-quoted]
+                                `(do ~@(for [ci# (range ~len)]
+                                         `(aset ^bytes ~~'out (+ ~~'idx ~ci#)
+                                                (aget ^bytes (. ~~'obj ~~'sym)
+                                                      (+ (* ~~'idx ~~stride) ~~offset ~ci#))))))))))
                      offsets)))
             (:structs lo))))
 
-(defn- emit-array-whole-setters [lo]
+;; ---------- obj- 整字段写入宏 ----------
+(defn emit-obj-whole-setters [lo]
   (vec
     (mapcat (fn [s]
-              (let [stride (:stride s)
-                    offsets (field-offsets (:fields s))]
+              (let [stride    (:stride s)
+                    type-kw   (:type s)
+                    field-sym-quoted `(symbol (name (:name ~s)))
+                    offsets   (field-offsets (:fields s))]
                 (map (fn [[f offset]]
-                       (let [field-sym (symbol (str "set-" (name (:name f)) "!"))
+                       (let [field-sym* (symbol (str "obj-set-" (name (:name f)) "!"))
                              len        (:length f)
-                             params     (into ['arr 'idx] (repeatedly len gensym))
-                             asets      (for [ci (range len)]
-                                          `(aset ~'arr
-                                                 (+ (* ~'idx ~stride) ~(+ offset ci))
-                                                 ~(nth params (+ 2 ci))))]
-                         `(defmacro ~field-sym ~(vec params)
-                            ~@asets)))
+                             val-syms   (repeatedly len gensym)]
+                         (case type-kw
+                           :float
+                           `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
+                              (let [~'sym ~field-sym-quoted]
+                                `(do ~@(map-indexed (fn [ci# val#]
+                                                      `(aset ^floats (. ~~'obj ~~'sym)
+                                                             (+ (* ~~'idx ~~stride) ~~offset ~ci#)
+                                                             ~val#))
+                                                    (list ~@val-syms)))))
+                           :int
+                           `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
+                              (let  [~'sym ~field-sym-quoted]
+                                `(do ~@(map-indexed (fn [ci# val#]
+                                                      `(aset ^ints (. ~~'obj ~~'sym)
+                                                             (+ (* ~~'idx ~~stride) ~~offset ~ci#)
+                                                             ~val#))
+                                                    (list ~@val-syms)))))
+                           :byte
+                           `(defmacro ~field-sym* [~'obj ~'idx ~@val-syms]
+                              (let [~'sym ~field-sym-quoted]
+                                `(do ~@(map-indexed (fn [ci# val#]
+                                                      `(aset ^bytes (. ~~'obj ~~'sym)
+                                                             (+ (* ~~'idx ~~stride) ~~offset ~ci#)
+                                                             ~val#))
+                                                    (list ~@val-syms))))))))
                      offsets)))
             (:structs lo))))
 
 
 ;; ---------- 主宏 ----------
-
 (defmacro deflayout
   [name layout & opts]
   (let [lo (parse-layout name layout (apply hash-map opts))
-        _ (println (pr-str lo))]
+        _  (println (pr-str lo))]
     `(do
        (deftype ~name ~(emit-type-fields lo))
-       ;; 数组版（默认高效）
+       ;; 原始数组版本
        ~@(emit-array-accessors lo)
        ~@(emit-array-setters lo)
        ~@(emit-array-whole-accessors lo)
        ~@(emit-array-whole-setters lo)
+       ;; obj 版本
+       ~@(emit-obj-accessors lo)
+       ~@(emit-obj-setters lo)
+       ~@(emit-obj-whole-accessors lo)
+       ~@(emit-obj-whole-setters lo)
        )))
-
-(comment
-  ;; 示例布局
-  (deflayout Object
-             {:f0 [:float [:vertex 3 :normal 3 :uv0 2]
-                   :unsynchronized-mutable false]
-              :f1 [:float [:weights 4]]}
-             :ext true
-             :unsynchronized-mutable true)
-
-  ;; 生成的类型
-  (deftype Object [^floats f0
-                   ^:unsynchronized-mutable ^floats f1
-                   ext])
-
-  ;; ===== 数组版本（高性能） =====
-  (let [obj (Object. (float-array 100) (float-array 100) nil)
-        f0  (.f0 obj)
-        out (float-array 3)]
-    (vertex-x f0 0)                ; 读取分量
-    (set-vertex-x! f0 0 1.0)       ; 设置分量
-    (vertex out f0 0)              ; 整体拷贝
-    (set-vertex! f0 0 1.0 2.0 3.0); 整体设置
-    (weights out (.f1 obj) 5))     ; 另一个分组
-
-  ;; ===== 对象版本（便捷，obj- 前缀） =====
-  (let [obj (Object. (float-array 100) (float-array 100) nil)
-        out (float-array 3)]
-    (obj-vertex-x obj 0)                   ; 分量读取
-    (obj-set-vertex-x! obj 0 1.0)          ; 分量设置
-    (obj-vertex out obj 0)                 ; 整体拷贝
-    (obj-set-vertex! obj 0 1.0 2.0 3.0))  ; 整体设置
-  )
