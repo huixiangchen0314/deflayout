@@ -443,12 +443,13 @@
 
 ;; ---------- 主宏 ----------
 (defmacro deflayout
-  [name layout & opts]
-  (let [lo (parse-layout name layout (apply hash-map opts))
+  [name layout opts & body]
+  (let [lo (parse-layout name layout opts)
         unchecked?  (:unchecked-math? lo)
         _  (println (pr-str lo))]
     `(do
-       (deftype ~name ~(emit-type-fields lo))
+       (deftype ~name ~(emit-type-fields lo)
+         ~@body)
        ;; 原始数组版本
        ~@(emit-array-accessors lo unchecked?)
        ~@(emit-array-setters lo unchecked?)
