@@ -24,6 +24,7 @@
    structs
    ^boolean ext?
    ^boolean unchecked-math?
+   type
    ^LayoutDesc default-desc])
 
 ;; ---------- 解析逻辑 ----------
@@ -59,12 +60,13 @@
          (parse-struct gname gdef default-desc))))
 
 (defn parse-layout ^Layout [name layout
-                            {:keys [ext? unchecked-math?] :as opts
+                            {:keys [ext? type unchecked-math?] :as opts
                              :or   {ext?             false
+                                    type             :type
                                     unchecked-math? false}}]
   (let [default-desc (parse-desc opts)
         structs      (parse-structs layout default-desc)]
-    (Layout. name structs (boolean ext?) (boolean unchecked-math?) default-desc)))
+    (Layout. name structs (boolean ext?) (boolean unchecked-math?) type default-desc)))
 
 ;; ---------- 类型提示工具（仅用于 deftype 字段生成） ----------
 (defn- type-tag-hint [type-kw]
@@ -440,6 +442,13 @@
                      offsets)))
             (:structs lo))))
 
+(defn emit-type-definition [name ^Layout lo body]
+  (let [type (:type lo)]
+    (case type
+      :type `(deftype ~name ~(emit-type-fields lo)
+               ~@body)
+      :record `(defrecord ~name ~(emit-type-fields lo)
+                 ~@body))))
 
 ;; ---------- 主宏 ----------
 (defmacro deflayout
@@ -448,8 +457,7 @@
         unchecked?  (:unchecked-math? lo)
         _  (println (pr-str lo))]
     `(do
-       (deftype ~name ~(emit-type-fields lo)
-         ~@body)
+       ~(emit-type-definition name lo body)
        ;; 原始数组版本
        ~@(emit-array-accessors lo unchecked?)
        ~@(emit-array-setters lo unchecked?)
