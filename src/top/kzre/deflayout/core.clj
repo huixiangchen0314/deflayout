@@ -270,9 +270,9 @@
                                                `(defmacro ~accessor-name [~'obj ~'idx]
                                                   (let [~'sym ~field-sym-quoted]
                                                     (if ~unchecked?
-                                                      `(aget ^"[" (. ~~'obj ~~'sym)
+                                                      `(aget ^"[I" (. ~~'obj ~~'sym)
                                                              (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset))
-                                                      `(aget ^"[" (. ~~'obj ~~'sym)
+                                                      `(aget ^"[I" (. ~~'obj ~~'sym)
                                                              (+ (* ~~'idx ~~stride) ~~final-offset)))))
                                                :byte
                                                `(defmacro ~accessor-name [~'obj ~'idx]
