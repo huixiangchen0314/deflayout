@@ -142,7 +142,8 @@
                                 comp-names (or (:comp-names f)
                                                (mapv #(keyword (str %)) (range (:length f))))]
                             (map-indexed (fn [ci comp-name]
-                                           (let [accessor-name (symbol (str (name sem) "-" (name comp-name)))
+                                           (let [accessor-name
+                                                 (symbol (str (name sem) "-" (name comp-name) "-offset"))
                                                  final-offset  (+ offset ci)]
                                              (case type-kw
                                                :float
@@ -219,7 +220,7 @@
                                 comp-names (or (:comp-names f)
                                                (mapv #(keyword (str %)) (range (:length f))))]
                             (map-indexed (fn [ci comp-name]
-                                           (let [setter-name  (symbol (str "set-" (name sem) "-" (name comp-name) "!"))
+                                           (let [setter-name  (symbol (str "set-" (name sem) "-" (name comp-name) "-offset" "!"))
                                                  final-offset (+ offset ci)]
                                              (case type-kw
                                                :float
@@ -300,7 +301,7 @@
                     type-kw (:type s)
                     offsets (field-offsets (:fields s))]
                 (map (fn [[f offset]]
-                       (let [field-sym (symbol (name (:name f)))
+                       (let [field-sym (symbol (name (:name f)) "-offset")
                              len       (:length f)]
                          (case type-kw
                            :float
@@ -389,7 +390,7 @@
                     type-kw (:type s)
                     offsets (field-offsets (:fields s))]
                 (map (fn [[f offset]]
-                       (let [field-sym (symbol (str "set-" (name (:name f)) "!"))
+                       (let [field-sym (symbol (str "set-" (name (:name f)) "-offset" "!"))
                              len       (:length f)
                              val-syms  (repeatedly len gensym)]
                          (case type-kw
