@@ -150,25 +150,25 @@
                                                `(defmacro ~accessor-name [ ~'arr ~'idx ~'offset]
                                                   (if ~unchecked?
                                                     `(aget ^"[F" ~~'arr (unchecked-add
-                                                                          ~'offset
+                                                                          ~~'offset
                                                                           (unchecked-add
                                                                             (unchecked-multiply ~~'idx ~~stride) ~~final-offset)))
-                                                    `(aget ^"[F" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~final-offset))))
+                                                    `(aget ^"[F" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~final-offset))))
                                                :int
                                                `(defmacro ~accessor-name [~'arr ~'idx ~'offset]
                                                   (if ~unchecked?
                                                     `(aget ^"[I" ~~'arr (unchecked-add
-                                                                          ~'offset
+                                                                          ~~'offset
                                                                           (unchecked-add
                                                                             (unchecked-multiply ~~'idx ~~stride) ~~final-offset)))
-                                                    `(aget ^"[I" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~final-offset))))
+                                                    `(aget ^"[I" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~final-offset))))
                                                :byte
                                                `(defmacro ~accessor-name [ ~'arr ~'idx ~'offset]
                                                   (if ~unchecked?
                                                     `(aget ^"[B" ~~'arr (unchecked-add
-                                                                          ~'offset
+                                                                          ~~'offset
                                                                           (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~final-offset)))
-                                                    `(aget ^"[B" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~final-offset)))))))
+                                                    `(aget ^"[B" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~final-offset)))))))
                                          comp-names)))
                         offsets)))
             (:structs lo))))
@@ -228,28 +228,28 @@
                                                   (if ~unchecked?
                                                     `(aset ^"[F" ~~'arr
                                                            (unchecked-add
-                                                             ~'offset
+                                                             ~~'offset
                                                              (unchecked-add
                                                                (unchecked-multiply ~~'idx ~~stride) ~~final-offset)) ~~'val)
-                                                    `(aset ^"[F" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~final-offset) ~~'val)))
+                                                    `(aset ^"[F" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~final-offset) ~~'val)))
                                                :int
                                                `(defmacro ~setter-name [~'arr ~'idx ~'val ~'offset]
                                                   (if ~unchecked?
                                                     `(aset ^"[I" ~~'arr
                                                            (unchecked-add
-                                                             ~'offset
+                                                            ~~'offset
                                                              (unchecked-add
                                                                (unchecked-multiply ~~'idx ~~stride) ~~final-offset)) ~~'val)
-                                                    `(aset ^"[I" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~final-offset) ~~'val)))
+                                                    `(aset ^"[I" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~final-offset) ~~'val)))
                                                :byte
                                                `(defmacro ~setter-name [ ~'arr ~'idx ~'val ~'offset]
                                                   (if ~unchecked?
                                                     `(aset ^"[B" ~~'arr
                                                            (unchecked-add
-                                                             ~'offset
+                                                             ~~'offset
                                                              (unchecked-add
                                                                (unchecked-multiply ~~'idx ~~stride) ~~final-offset)) ~~'val)
-                                                    `(aset ^"[B" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~final-offset) ~~'val))))))
+                                                    `(aset ^"[B" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~final-offset) ~~'val))))))
                             comp-names)))
                 offsets)))
     (:structs lo))))
