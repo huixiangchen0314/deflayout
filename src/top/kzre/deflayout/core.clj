@@ -312,12 +312,12 @@
                                          `(aset ^"[F" ~~'out (unchecked-add ~~'idx ~ci#)
                                                 (aget ^"[F" ~~'arr
                                                       (unchecked-add
-                                                        ~'offset
+                                                        ~~'offset
                                                         (unchecked-add
                                                           (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset)
                                                           ~ci#))))
                                          `(aset ^"[F" ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^"[F" ~~'arr (+  ~'offset (* ~~'idx ~~stride) ~~offset ~ci#)))))))
+                                                (aget ^"[F" ~~'arr (+  ~~'offset (* ~~'idx ~~stride) ~~offset ~ci#)))))))
                            :int
                            `(defmacro ~field-sym [~'out ~'arr ~'idx  ~'offset]
                               `(do ~@(for [ci# (range ~len)]
@@ -325,12 +325,12 @@
                                          `(aset ^"[I" ~~'out (unchecked-add ~~'idx ~ci#)
                                                 (aget ^"[I" ~~'arr
                                                       (unchecked-add
-                                                        ~'offset
+                                                        ~~'offset
                                                         (unchecked-add
                                                           (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset)
                                                           ~ci#))))
                                          `(aset ^"[I" ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^"[I" ~~'arr (+  ~'offset (* ~~'idx ~~stride) ~~offset ~ci#)))))))
+                                                (aget ^"[I" ~~'arr (+  ~~'offset (* ~~'idx ~~stride) ~~offset ~ci#)))))))
                            :byte
                            `(defmacro ~field-sym [~'out ~'arr ~'idx  ~'offset]
                               `(do ~@(for [ci# (range ~len)]
@@ -338,12 +338,12 @@
                                          `(aset ^"[B" ~~'out (unchecked-add ~~'idx ~ci#)
                                                 (aget ^"[B" ~~'arr
                                                       (unchecked-add
-                                                        ~'offset
+                                                        ~~'offset
                                                         (unchecked-add
                                                           (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset)
                                                           ~ci#))))
                                          `(aset ^"[B" ~~'out (+ ~~'idx ~ci#)
-                                                (aget ^"[B" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~offset ~ci#))))))))))
+                                                (aget ^"[B" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~offset ~ci#))))))))))
                      offsets)))
             (:structs lo))))
 
@@ -400,12 +400,12 @@
                                                     (if ~unchecked?
                                                       `(aset ^"[F" ~~'arr
                                                              (unchecked-add
-                                                               ~'offset
+                                                               ~~'offset
                                                                (unchecked-add
                                                                  (unchecked-add
                                                                    (unchecked-multiply ~~'idx ~~stride) ~~offset) ~ci#) )
                                                              ~val#)
-                                                      `(aset ^"[F" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
+                                                      `(aset ^"[F" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
                                                   (list ~@val-syms))))
                            :int
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms ~'offset]
@@ -413,12 +413,12 @@
                                                     (if ~unchecked?
                                                       `(aset ^"[I" ~~'arr
                                                              (unchecked-add
-                                                               ~'offset
+                                                               ~~'offset
                                                                (unchecked-add
                                                                  (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset)
                                                                  ~ci#) )
                                                              ~val#)
-                                                      `(aset ^"[I" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
+                                                      `(aset ^"[I" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
                                                   (list ~@val-syms))))
                            :byte
                            `(defmacro ~field-sym [~'arr ~'idx ~@val-syms ~'offset]
@@ -426,12 +426,12 @@
                                                     (if ~unchecked?
                                                       `(aset ^"[B" ~~'arr
                                                              (unchecked-add
-                                                               ~'offset
+                                                               ~~'offset
                                                                (unchecked-add
                                                                  (unchecked-add (unchecked-multiply ~~'idx ~~stride) ~~offset)
                                                                  ~ci#) )
                                                              ~val#)
-                                                      `(aset ^"[B" ~~'arr (+ ~'offset (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
+                                                      `(aset ^"[B" ~~'arr (+ ~~'offset (* ~~'idx ~~stride) ~~offset ~ci#) ~val#)))
                                                   (list ~@val-syms)))))))
                      offsets)))
             (:structs lo))))
@@ -663,7 +663,7 @@
        ~@(emit-array-accessors-offset lo unchecked?)
        ~@(emit-array-setters-offset lo unchecked?)
        ~@(emit-array-whole-accessors-offset lo unchecked?)
-       ~@(emit-array-whole-setters-offset lo unchecked?)
+       ;~@(emit-array-whole-setters-offset lo unchecked?)
        ;; obj 版本
        ~@(emit-obj-accessors lo unchecked?)
        ~@(emit-obj-setters lo unchecked?)
